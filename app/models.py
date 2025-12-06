@@ -63,12 +63,13 @@ class Dividend(Base):
 
     id = Column(Integer, primary_key=True)
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='CASCADE'), nullable=False)
-    ex_date = Column(Date, nullable=False)
+    ex_date = Column(Date)
     pay_date = Column(Date)
     record_date = Column(Date)
     declared_date = Column(Date)
-    amount = Column(Numeric, nullable=False)
+    amount = Column(Numeric)
     frequency = Column(String(length=32))
+    date = Column(Date)
 
     stock = relationship('Stock', back_populates='dividends')
 

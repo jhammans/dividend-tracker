@@ -1,13 +1,13 @@
 # test_ingestion.py
-from app.services.ingestion import ingest_stock_data
+from app.services.ingestion import ingest_stocks
 from app.db.session import SessionLocal
 
 def main():
     db = SessionLocal()
     try:
         # Example tickers to test
-        tickers = ["AAPL", "MSFT", "KO"]
-        ingest_stocks(db, tickers)
+        tickers = ["AAPL", "MSFT", "KO", "SCHD"]
+        ingest_stocks(tickers)
         print("Ingestion completed successfully.")
     except Exception as e:
         print(f"Ingestion failed: {e}")
