@@ -1,0 +1,17 @@
+# virtual environment
+venv/
+.dividend_track_venv
+.env
+.env.*
+!.env.example
+
+
+__pycache__/
+*.pyc
+
+# alembic cache
+alembic/versions/__pycache__/
+
+# OS files
+.DS_Store
+Thumbs.db

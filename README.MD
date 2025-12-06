@@ -1,0 +1,50 @@
+Dividend Tracker — DB Models & Alembic Migration
+
+
+What this folder provides:
+- requirements.txt
+- .env.example
+- models.py (SQLAlchemy ORM models)
+- alembic/ (alembic configuration + migration script)
+
+
+Quick start (assumes Python 3.10+ and PostgreSQL available):
+
+
+1. Create and activate a virtual environment
+
+
+python -m venv .venv
+source .venv/bin/activate # macOS/Linux
+.venv\Scripts\activate # Windows
+
+
+2. Install dependencies
+
+
+pip install -r requirements.txt
+
+
+3. Set your DATABASE_URL in environment
+
+
+export DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/dividend_db
+# or on Windows PowerShell
+$env:DATABASE_URL = "postgresql+psycopg2://user:password@localhost:5432/dividend_db"
+
+
+4. Initialize database (run alembic migrations)
+
+
+alembic upgrade head
+
+
+5. Verify tables in Postgres. Done!
+
+
+Notes:
+- The alembic env.py imports metadata from models.py so Alembic can autogenerate future revisions.
+- If you prefer to autogenerate instead of using the provided migration file, run:
+
+
+alembic revision --autogenerate -m "create base tables"
