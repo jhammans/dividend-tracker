@@ -1,91 +1,125 @@
 # app/services/ingestion.py
 import pandas as pd
 from datetime import datetime, timedelta
+import logging
 from app.db.session import SessionLocal
 from app.models import Stock, StockPrice, Dividend
-from .fetch import fetch_stock_data
+from .fetch import fetch_stock_data, InvalidTickerError
 from ._helpers import to_native
 
+logger = logging.getLogger(__name__)
+
 def ingest_stock_data(tickers: list[str], backfill: bool = True):
+    """Ingest stock data for multiple tickers, skipping invalid ones."""
     db = SessionLocal()
+    successful = []
+    failed = []
+    
     try:
         for ticker in tickers:
-            stock = db.query(Stock).filter(Stock.ticker == ticker).first()
-            if not stock:
-                stock = Stock(ticker=ticker)
-                db.add(stock)
-                db.commit()
-                db.refresh(stock)
+            try:
+                logger.info(f"Processing {ticker}...")
+                
+                # Fetch latest data first to validate ticker
+                try:
+                    prices_df, dividends_series = fetch_stock_data(ticker)
+                except InvalidTickerError as e:
+                    logger.warning(f"Skipping {ticker}: {e}")
+                    failed.append((ticker, str(e)))
+                    continue
+                
+                # Create or get stock record
+                stock = db.query(Stock).filter(Stock.ticker == ticker).first()
+                if not stock:
+                    stock = Stock(ticker=ticker)
+                    db.add(stock)
+                    db.commit()
+                    db.refresh(stock)
 
-            # Fetch latest data
-            prices_df, dividends_series = fetch_stock_data(ticker)
+                # --- Prices ---
+                # Handle timezone conversion safely (yfinance may return naive or tz-aware)
+                if prices_df.index.tz is not None:
+                    prices_df.index = prices_df.index.tz_convert("UTC").tz_localize(None)
+                prices_df = prices_df.reset_index().rename(columns={'Date': 'date'})
+                prices_df = to_native(prices_df)
+                # Ensure dates are Python date objects (not timestamps)
+                prices_df['date'] = pd.to_datetime(prices_df['date']).dt.date
 
-            # --- Prices ---
-            # Force timezone-naive datetime BEFORE renaming
-            prices_df.index = (prices_df.index.tz_convert("UTC", nonexistent="shift_forward", ambiguous="NaT").tz_localize(None))
-            prices_df = prices_df.reset_index().rename(columns={'Date': 'date'})
-            prices_df = to_native(prices_df)
+                existing_dates = {row.date for row in db.query(StockPrice).filter(StockPrice.stock_id == stock.id).all()}
+                new_prices = prices_df[~prices_df['date'].isin(existing_dates)]
 
-            existing_dates = {row.date for row in db.query(StockPrice.date).filter(StockPrice.stock_id == stock.id)}
-            new_prices = prices_df[~prices_df['date'].isin(existing_dates)]
+                if backfill and existing_dates:
+                    # Find missing dates
+                    all_dates = pd.date_range(min(prices_df['date']), max(prices_df['date']))
+                    missing_dates = [d.to_pydatetime() for d in all_dates if d.to_pydatetime() not in existing_dates]
+                    if missing_dates:
+                        missing_prices = prices_df[prices_df['date'].isin(missing_dates)]
+                        new_prices = pd.concat([new_prices, missing_prices]).drop_duplicates(subset='date')
 
-            if backfill and existing_dates:
-                # Find missing dates
-                all_dates = pd.date_range(min(prices_df['date']), max(prices_df['date']))
-                missing_dates = [d.to_pydatetime() for d in all_dates if d.to_pydatetime() not in existing_dates]
-                if missing_dates:
-                    missing_prices = prices_df[prices_df['date'].isin(missing_dates)]
-                    new_prices = pd.concat([new_prices, missing_prices]).drop_duplicates(subset='date')
-
-            if not new_prices.empty:
-                db.bulk_insert_mappings(
-                    StockPrice,
-                    [
-                        {
-                            'stock_id': stock.id,
-                            'date': row['date'],
-                            'open': row['open'],
-                            'high': row['high'],
-                            'low': row['low'],
-                            'close': row['close'],
-                            'volume': row['volume']
-                        }
-                        for _, row in new_prices.iterrows()
-                    ]
-                )
-
-            # --- Dividends ---
-            if not dividends_series.empty:
-                dividends_df = dividends_series.reset_index()
-                dividends_df = dividends_df.rename(columns={'Date': 'date', dividends_df.columns[1]: 'dividend'})
-                dividends_df = to_native(dividends_df)
-
-                existing_div_dates = {row.date for row in db.query(Dividend.date).filter(Dividend.stock_id == stock.id)}
-                new_dividends = dividends_df[~dividends_df['date'].isin(existing_div_dates)]
-
-                if backfill and existing_div_dates:
-                    # Fill missing dividend dates
-                    all_div_dates = pd.date_range(min(dividends_df['date']), max(dividends_df['date']))
-                    missing_div_dates = [d.to_pydatetime() for d in all_div_dates if d.to_pydatetime() not in existing_div_dates]
-                    if missing_div_dates:
-                        missing_divs = dividends_df[dividends_df['date'].isin(missing_div_dates)]
-                        new_dividends = pd.concat([new_dividends, missing_divs]).drop_duplicates(subset='date')
-
-                if not new_dividends.empty:
+                if not new_prices.empty:
                     db.bulk_insert_mappings(
-                        Dividend,
+                        StockPrice,
                         [
-                            {'stock_id': stock.id, 'date': row['date'], 'dividend': row['dividend']}
-                            for _, row in new_dividends.iterrows()
+                            {
+                                'stock_id': stock.id,
+                                'date': row['date'],
+                                'open': row['open'],
+                                'high': row['high'],
+                                'low': row['low'],
+                                'close': row['close'],
+                                'volume': row['volume']
+                            }
+                            for _, row in new_prices.iterrows()
                         ]
                     )
+                    logger.info(f"  Inserted {len(new_prices)} price records for {ticker}")
 
-            # Update last_updated timestamp
-            stock.last_updated = datetime.utcnow()
-            db.add(stock)
-            db.commit()
-    except Exception as e:
-        db.rollback()
-        raise e
+                # --- Dividends ---
+                if not dividends_series.empty:
+                    dividends_df = dividends_series.reset_index()
+                    dividends_df = dividends_df.rename(columns={'Date': 'ex_date', dividends_df.columns[1]: 'amount'})
+                    dividends_df = to_native(dividends_df)
+                    # Ensure dates are Python date objects (not timestamps)
+                    dividends_df['ex_date'] = pd.to_datetime(dividends_df['ex_date']).dt.date
+
+                    # Query existing ex_dates for this stock
+                    existing_ex_dates = {row.ex_date for row in db.query(Dividend).filter(Dividend.stock_id == stock.id).all()}
+                    new_dividends = dividends_df[~dividends_df['ex_date'].isin(existing_ex_dates)]
+
+                    if not new_dividends.empty:
+                        db.bulk_insert_mappings(
+                            Dividend,
+                            [
+                                {'stock_id': stock.id, 'ex_date': row['ex_date'], 'amount': row['amount']}
+                                for _, row in new_dividends.iterrows()
+                            ]
+                        )
+                        logger.info(f"  Inserted {len(new_dividends)} dividend records for {ticker}")
+                    db.commit()
+
+                # Update last_updated timestamp
+                stock.last_updated = datetime.utcnow()
+                db.add(stock)
+                db.commit()
+                
+                successful.append(ticker)
+                logger.info(f"✓ Successfully ingested {ticker}")
+                
+            except Exception as e:
+                logger.error(f"Error processing {ticker}: {e}")
+                failed.append((ticker, str(e)))
+                db.rollback()
+                continue
+        
     finally:
         db.close()
+        
+    # Summary report
+    if successful or failed:
+        print(f"\n=== Ingestion Summary ===")
+        if successful:
+            print(f"✓ Successful ({len(successful)}): {', '.join(successful)}")
+        if failed:
+            print(f"✗ Failed ({len(failed)}):")
+            for ticker, reason in failed:
+                print(f"  - {ticker}: {reason}")

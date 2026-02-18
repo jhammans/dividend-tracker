@@ -12,11 +12,8 @@ def to_native(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             # Convert tz-aware → UTC → naive
-            df[col] = (
-                df[col]
-                .dt.tz_convert("UTC", nonexistent="shift_forward", ambiguous="NaT")
-                .dt.tz_localize(None)
-            )
+            if df[col].dt.tz is not None:
+                df[col] = df[col].dt.tz_convert("UTC").dt.tz_localize(None)
         else:
             # Convert values independently
             df[col] = df[col].apply(_to_native_scalar)
