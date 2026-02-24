@@ -37,6 +37,19 @@ class Stock(Base):
     alerts = relationship('Alert', back_populates='stock', cascade='all, delete-orphan')
     ai_analyses = relationship('AIAnalysis', back_populates='stock', cascade='all, delete-orphan')
 
+class Account(Base):
+    __tablename__ = 'accounts'
+
+    id = Column(Integer, primary_key=True)
+    account_name = Column(String(length=256), nullable=False)  # e.g., "IRA - John", "Schwab Taxable"
+    broker = Column(String(length=32), nullable=False)  # SCHWAB, FIDELITY, ROBINHOOD
+    account_type = Column(String(length=32), nullable=False)  # IRA, ROTH_IRA, TAXABLE, 401K, etc.
+    account_number = Column(String(length=64))  # Last 4 digits or full account number
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    holdings = relationship('Holding', back_populates='account', cascade='all, delete-orphan')
+    transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
+
 class StockPrice(Base):
     __tablename__ = 'stock_prices'
     __table_args__ = (
@@ -77,31 +90,33 @@ class Dividend(Base):
 class Holding(Base):
     __tablename__ = 'holdings'
     __table_args__ = (
-    UniqueConstraint('stock_id', name='uq_holdings_stock'),
+    UniqueConstraint('account_id', 'stock_id', name='uq_holding_account_stock'),
     )
 
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False)
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='CASCADE'), nullable=False)
     quantity = Column(Numeric, nullable=False, default=0)
     cost_basis = Column(Numeric, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    account = relationship('Account', back_populates='holdings')
     stock = relationship('Stock', back_populates='holdings')
 
 class Transaction(Base):
     __tablename__ = 'transactions'
 
-
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False)
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='SET NULL'))
-    type = Column(String(length=32), nullable=False) # buy, sell, drip, split, div_payment
+    type = Column(String(length=32), nullable=False)  # buy, sell, drip, split, div_payment
     quantity = Column(Numeric)
     price = Column(Numeric)
     total = Column(Numeric)
     date = Column(Date)
 
-
+    account = relationship('Account', back_populates='transactions')
     stock = relationship('Stock', back_populates='transactions')
 
 
