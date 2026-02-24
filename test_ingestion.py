@@ -4,7 +4,7 @@ from app.services.fetch import fetch_stock_data, InvalidTickerError
 
 
 def main():
-    tickers = ["KO", "AAPL", "INVALID_TICKER_XYZ", "MSFT"]
+    tickers = ["SCHD", "VGT", "GLD", "SPYG", "QQQM", "KO"]  # Mix of ETFs and stocks
     try:
         print("=== Step 1: Fetching data ===")
         for ticker in tickers:

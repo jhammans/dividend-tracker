@@ -27,6 +27,7 @@ class Stock(Base):
     sector = Column(String(length=128))
     industry = Column(String(length=128))
     currency = Column(String(length=8), default='USD')
+    asset_type = Column(String(length=32), default='EQUITY')  # EQUITY, ETF, MUTUALFUND
     last_updated = Column(DateTime, default=datetime.utcnow)
 
     prices = relationship('StockPrice', back_populates='stock', cascade='all, delete-orphan')

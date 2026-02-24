@@ -2,6 +2,7 @@
 import pandas as pd
 from datetime import datetime, timedelta
 import logging
+import yfinance as yf
 from app.db.session import SessionLocal
 from app.models import Stock, StockPrice, Dividend
 from .fetch import fetch_stock_data, InvalidTickerError
@@ -28,13 +29,66 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                     failed.append((ticker, str(e)))
                     continue
                 
-                # Create or get stock record
+                # Fetch stock metadata from yfinance
+                try:
+                    yf_stock = yf.Ticker(ticker)
+                    yf_info = yf_stock.info
+                    asset_type = yf_info.get('quoteType', 'EQUITY')
+                    name = yf_info.get('longName') or yf_info.get('shortName')
+                    exchange = yf_info.get('exchange')
+                    sector = yf_info.get('sector')
+                    industry = yf_info.get('industry')
+                except Exception as e:
+                    logger.warning(f"Could not fetch yfinance metadata for {ticker}: {e}")
+                    asset_type, name, exchange, sector, industry = 'EQUITY', None, None, None, None
+                
+                # Create or update stock record
                 stock = db.query(Stock).filter(Stock.ticker == ticker).first()
                 if not stock:
-                    stock = Stock(ticker=ticker)
+                    # Create new stock with fetched metadata
+                    stock = Stock(
+                        ticker=ticker,
+                        name=name,
+                        exchange=exchange,
+                        sector=sector,
+                        industry=industry,
+                        asset_type=asset_type
+                    )
                     db.add(stock)
                     db.commit()
                     db.refresh(stock)
+                    logger.info(f"  Created new stock: {ticker} ({asset_type})")
+                else:
+                    # Check for updates to existing stock
+                    updates = {}
+                    if stock.name != name:
+                        updates['name'] = (stock.name, name)
+                    if stock.exchange != exchange:
+                        updates['exchange'] = (stock.exchange, exchange)
+                    if stock.sector != sector:
+                        updates['sector'] = (stock.sector, sector)
+                    if stock.industry != industry:
+                        updates['industry'] = (stock.industry, industry)
+                    if stock.asset_type != asset_type:
+                        updates['asset_type'] = (stock.asset_type, asset_type)
+                    
+                    if updates:
+                        # Apply updates
+                        if 'name' in updates:
+                            stock.name = name
+                        if 'exchange' in updates:
+                            stock.exchange = exchange
+                        if 'sector' in updates:
+                            stock.sector = sector
+                        if 'industry' in updates:
+                            stock.industry = industry
+                        if 'asset_type' in updates:
+                            stock.asset_type = asset_type
+                        
+                        db.commit()
+                        logger.info(f"  Updated stock: {ticker}")
+                        for field, (old, new) in updates.items():
+                            logger.info(f"    {field}: {old} → {new}")
 
                 # --- Prices ---
                 # Handle timezone conversion safely (yfinance may return naive or tz-aware)
