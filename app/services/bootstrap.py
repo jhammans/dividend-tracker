@@ -5,6 +5,7 @@ This is a prerequisite for transaction and holdings imports to avoid foreign key
 Supports flexible column naming: Symbol, Ticker, symbol, ticker, etc.
 """
 import logging
+import csv
 from typing import List, Set, Dict, Tuple, Optional
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -59,25 +60,56 @@ class TickerBootstrapper:
             TickerBootstrapError if file read fails or no tickers found
         """
         try:
-            df = pd.read_csv(filepath)
-            logger.info(f"Loaded CSV with {len(df)} rows from {filepath}")
-            
-            # Find ticker column
-            ticker_col = self._find_ticker_column(df.columns)
-            if not ticker_col:
-                raise TickerBootstrapError(
-                    f"Could not find ticker column in CSV. Available columns: {list(df.columns)}"
-                )
-            
-            logger.info(f"Using column '{ticker_col}' for ticker symbols")
-            
-            # Extract and normalize tickers
             tickers = set()
-            for val in df[ticker_col].dropna():
-                ticker = str(val).strip().upper()
-                # Filter out non-ticker values (cash, empty, etc.)
-                if ticker and ticker not in ['CASH', 'MONEY MARKET', '']:
-                    tickers.add(ticker)
+            
+            # Use csv.DictReader for brokers with multi-line CSV fields (Robinhood)
+            if broker.upper() == 'ROBINHOOD':
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    logger.info(f"Loaded Robinhood CSV using csv.DictReader from {filepath}")
+                    
+                    # Find ticker column name
+                    if not reader.fieldnames:
+                        raise TickerBootstrapError("CSV file appears to be empty or invalid")
+                    
+                    ticker_col = self._find_ticker_column(reader.fieldnames)
+                    if not ticker_col:
+                        raise TickerBootstrapError(
+                            f"Could not find ticker column in CSV. Available columns: {list(reader.fieldnames)}"
+                        )
+                    
+                    logger.info(f"Using column '{ticker_col}' for ticker symbols")
+                    
+                    # Extract tickers
+                    row_count = 0
+                    for row in reader:
+                        row_count += 1
+                        val = row.get(ticker_col, '').strip().upper() if row.get(ticker_col) else ''
+                        if val and val not in ['CASH', 'MONEY MARKET', '']:
+                            tickers.add(val)
+                    
+                    logger.info(f"Loaded {row_count} rows from CSV")
+            
+            else:
+                # Use pandas for standard Schwab/Jazz Wealth/Fidelity CSVs
+                df = pd.read_csv(filepath)
+                logger.info(f"Loaded CSV with {len(df)} rows from {filepath}")
+                
+                # Find ticker column
+                ticker_col = self._find_ticker_column(df.columns)
+                if not ticker_col:
+                    raise TickerBootstrapError(
+                        f"Could not find ticker column in CSV. Available columns: {list(df.columns)}"
+                    )
+                
+                logger.info(f"Using column '{ticker_col}' for ticker symbols")
+                
+                # Extract and normalize tickers
+                for val in df[ticker_col].dropna():
+                    ticker = str(val).strip().upper()
+                    # Filter out non-ticker values (cash, empty, etc.)
+                    if ticker and ticker not in ['CASH', 'MONEY MARKET', '']:
+                        tickers.add(ticker)
             
             logger.info(f"Found {len(tickers)} unique ticker symbols")
             self.bootstrap_results['total_unique_tickers'] = len(tickers)

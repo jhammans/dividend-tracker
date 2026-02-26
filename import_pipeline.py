@@ -138,9 +138,18 @@ def cmd_transactions(args):
         account = validate_account(db, args.account)
         logger.info(f"  ✓ Account: {account.account_name} ({account.broker})")
         
-        # Import transactions
+        # Import transactions (broker-specific)
         importer = TransactionImporter(db)
-        results = importer.import_schwab_transactions(csv_path, account)
+        
+        if args.broker.upper() in ['GOLDMAN_SACHS', 'JAZZWEALTH']:
+            logger.info(f"  Using Jazz Wealth parser...")
+            results = importer.import_jazzwealth_transactions(csv_path, account)
+        elif args.broker.upper() == 'ROBINHOOD':
+            logger.info(f"  Using Robinhood parser...")
+            results = importer.import_robinhood_transactions(csv_path, account)
+        else:
+            logger.info(f"  Using {args.broker} parser...")
+            results = importer.import_schwab_transactions(csv_path, account)
         
         logger.info("-" * 70)
         logger.info(f"✓ Transaction Import Complete")
@@ -154,22 +163,20 @@ def cmd_transactions(args):
         
         # Show imported transactions by type
         if results['imported_transactions']:
-            buy_txns = [t for t in results['imported_transactions'] if t.type == 'BUY']
-            sell_txns = [t for t in results['imported_transactions'] if t.type == 'SELL']
+            buy_txns = [t for t in results['imported_transactions'] if t['type'] == 'BUY']
+            sell_txns = [t for t in results['imported_transactions'] if t['type'] == 'SELL']
             
             if buy_txns:
                 logger.info(f"\nBUY transactions ({len(buy_txns)}):")
                 for txn in buy_txns[:5]:
-                    stock = db.query(Stock).filter_by(id=txn.stock_id).first()
-                    logger.info(f"  {txn.date} | {stock.ticker} | {txn.quantity}@ ${txn.price:.2f}")
+                    logger.info(f"  {txn['date']} | {txn['symbol']:6s} | {float(txn['quantity']):>10.2f} @ ${float(txn.get('price', -1)) if isinstance(txn.get('price'), str) else txn.get('price', -1):.2f}")
                 if len(buy_txns) > 5:
                     logger.info(f"  ... and {len(buy_txns) - 5} more")
             
             if sell_txns:
                 logger.info(f"\nSELL transactions ({len(sell_txns)}):")
                 for txn in sell_txns[:5]:
-                    stock = db.query(Stock).filter_by(id=txn.stock_id).first()
-                    logger.info(f"  {txn.date} | {stock.ticker} | {txn.quantity}@ ${txn.price:.2f}")
+                    logger.info(f"  {txn['date']} | {txn['symbol']:6s} | {float(txn['quantity']):>10.2f} @ ${float(txn.get('price', -1)) if isinstance(txn.get('price'), str) else txn.get('price', -1):.2f}")
                 if len(sell_txns) > 5:
                     logger.info(f"  ... and {len(sell_txns) - 5} more")
         
@@ -219,9 +226,23 @@ def cmd_full(args):
         logger.info("="*70)
         
         transactions_importer = TransactionImporter(db)
-        transactions_results = transactions_importer.import_schwab_transactions(
-            transactions_csv, account
-        )
+        
+        if args.broker.upper() in ['GOLDMAN_SACHS', 'JAZZWEALTH']:
+            logger.info(f"Using Jazz Wealth parser...")
+            transactions_results = transactions_importer.import_jazzwealth_transactions(
+                transactions_csv, account
+            )
+        elif args.broker.upper() == 'ROBINHOOD':
+            logger.info(f"Using Robinhood parser...")
+            transactions_results = transactions_importer.import_robinhood_transactions(
+                transactions_csv, account
+            )
+        else:
+            logger.info(f"Using {args.broker} parser...")
+            transactions_results = transactions_importer.import_schwab_transactions(
+                transactions_csv, account
+            )
+        
         logger.info(f"✓ Imported {transactions_results['imported_count']} transactions")
         logger.info(f"✓ Skipped {transactions_results['skipped_count']} non-trade events")
         
@@ -248,13 +269,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Step 1: Bootstrap all tickers (prerequisite for holdings/transactions)
+  # Create accounts
+  python import_pipeline.py create-account "Schwab Taxable" --broker SCHWAB --type TAXABLE
+  python import_pipeline.py create-account "Goldman Sachs Roth IRA" --broker GOLDMAN_SACHS --type ROTH_IRA --number XXX612
+  
+  # List all accounts
+  python import_pipeline.py accounts
+  
+  # Bootstrap all tickers (prerequisite for holdings/transactions)
   python import_pipeline.py bootstrap ~/Downloads/my_holdings.csv
   
-  # Step 2: Import current holdings
+  # Import current holdings
   python import_pipeline.py holdings ~/Downloads/my_holdings.csv 2
   
-  # Step 3: Import transactions
+  # Import transactions
   python import_pipeline.py transactions ~/Downloads/my_transactions.csv 2
   
   # All at once
@@ -267,21 +295,27 @@ Examples:
     # Bootstrap command
     bootstrap_parser = subparsers.add_parser('bootstrap', help='Scan CSV for tickers')
     bootstrap_parser.add_argument('csv', help='Path to holdings or transactions CSV')
-    bootstrap_parser.add_argument('--broker', default='SCHWAB', help='Broker name (default: SCHWAB)')
+    bootstrap_parser.add_argument('--broker', default='SCHWAB', 
+                                 choices=['SCHWAB', 'FIDELITY', 'GOLDMAN_SACHS', 'ROBINHOOD', 'OTHER'],
+                                 help='Broker name (default: SCHWAB)')
     bootstrap_parser.set_defaults(func=cmd_bootstrap)
     
     # Holdings command
     holdings_parser = subparsers.add_parser('holdings', help='Import holdings snapshot')
     holdings_parser.add_argument('csv', help='Path to Schwab holdings/positions CSV')
     holdings_parser.add_argument('account', type=int, help='Account ID in database')
-    holdings_parser.add_argument('--broker', default='SCHWAB', help='Broker name (default: SCHWAB)')
+    holdings_parser.add_argument('--broker', default='SCHWAB',
+                                 choices=['SCHWAB', 'FIDELITY', 'GOLDMAN_SACHS', 'ROBINHOOD', 'OTHER'],
+                                 help='Broker name (default: SCHWAB)')
     holdings_parser.set_defaults(func=cmd_holdings)
     
     # Transactions command
     transactions_parser = subparsers.add_parser('transactions', help='Import transactions')
-    transactions_parser.add_argument('csv', help='Path to Schwab transactions CSV')
+    transactions_parser.add_argument('csv', help='Path to transactions CSV')
     transactions_parser.add_argument('account', type=int, help='Account ID in database')
-    transactions_parser.add_argument('--broker', default='SCHWAB', help='Broker name (default: SCHWAB)')
+    transactions_parser.add_argument('--broker', default='SCHWAB',
+                                     choices=['SCHWAB', 'FIDELITY', 'GOLDMAN_SACHS', 'ROBINHOOD', 'OTHER'],
+                                     help='Broker/CSV format (default: SCHWAB)')
     transactions_parser.set_defaults(func=cmd_transactions)
     
     # Full pipeline command
@@ -289,12 +323,27 @@ Examples:
     full_parser.add_argument('holdings_csv', help='Path to holdings CSV')
     full_parser.add_argument('transactions_csv', help='Path to transactions CSV')
     full_parser.add_argument('account', type=int, help='Account ID in database')
-    full_parser.add_argument('--broker', default='SCHWAB', help='Broker name (default: SCHWAB)')
+    full_parser.add_argument('--broker', default='SCHWAB',
+                             choices=['SCHWAB', 'FIDELITY', 'GOLDMAN_SACHS', 'ROBINHOOD', 'OTHER'],
+                             help='Broker/CSV format (default: SCHWAB)')
     full_parser.set_defaults(func=cmd_full)
     
     # Show database accounts
     accounts_parser = subparsers.add_parser('accounts', help='List available accounts')
     accounts_parser.set_defaults(func=cmd_accounts)
+    
+    # Create account command
+    create_account_parser = subparsers.add_parser('create-account', help='Create a new account')
+    create_account_parser.add_argument('name', help='Account name (e.g., "Schwab Taxable")')
+    create_account_parser.add_argument('--broker', default='SCHWAB', 
+                                       choices=['SCHWAB', 'FIDELITY', 'GOLDMAN_SACHS', 'ROBINHOOD', 'OTHER'],
+                                       help='Broker name (default: SCHWAB)')
+    create_account_parser.add_argument('--type', dest='account_type', default='TAXABLE',
+                                       choices=['TAXABLE', 'IRA', 'ROTH_IRA', '401K', 'OTHER'],
+                                       help='Account type (default: TAXABLE)')
+    create_account_parser.add_argument('--number', dest='account_number', default='',
+                                       help='Account number (optional, last 4 digits recommended)')
+    create_account_parser.set_defaults(func=cmd_create_account)
     
     args = parser.parse_args()
     
@@ -309,6 +358,47 @@ Examples:
         import traceback
         logger.debug(traceback.format_exc())
         return 1
+
+
+def cmd_create_account(args):
+    """Create a new account in the database"""
+    db = SessionLocal()
+    try:
+        # Check if account already exists
+        existing = db.query(Account).filter_by(
+            broker=args.broker,
+            account_name=args.name
+        ).first()
+        
+        if existing:
+            logger.warning(f"✗ Account already exists: ID {existing.id}")
+            return 1
+        
+        # Create new account
+        account = Account(
+            broker=args.broker,
+            account_name=args.name,
+            account_type=args.account_type,
+            account_number=args.account_number or None
+        )
+        db.add(account)
+        db.commit()
+        
+        logger.info(f"✓ Account created successfully")
+        logger.info(f"  ID:      {account.id}")
+        logger.info(f"  Name:    {account.account_name}")
+        logger.info(f"  Broker:  {account.broker}")
+        logger.info(f"  Type:    {account.account_type}")
+        if account.account_number:
+            logger.info(f"  Number:  {account.account_number}")
+        
+        return 0
+        
+    except Exception as e:
+        logger.error(f"✗ Failed to create account: {e}")
+        return 1
+    finally:
+        db.close()
 
 
 def cmd_accounts(args):
