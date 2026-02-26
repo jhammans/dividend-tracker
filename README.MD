@@ -41,10 +41,27 @@ alembic upgrade head
 
 5. Verify tables in Postgres. Done!
 
+---
 
-Notes:
+## Next: Import Your Data
+
+Once the database is running, see [IMPORT_GUIDE.md](IMPORT_GUIDE.md) for how to:
+- Export holdings and transactions from your broker (Schwab)
+- Use the import pipeline to load your data
+- Verify the data was imported correctly
+
+Quick command:
+```bash
+python import_pipeline.py accounts  # List your accounts
+python import_pipeline.py full /path/to/holdings.csv /path/to/transactions.csv 2
+```
+
+---
+
+## Notes
 - The alembic env.py imports metadata from models.py so Alembic can autogenerate future revisions.
 - If you prefer to autogenerate instead of using the provided migration file, run:
 
-
+```bash
 alembic revision --autogenerate -m "create base tables"
+```

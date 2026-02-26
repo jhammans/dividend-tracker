@@ -98,6 +98,9 @@ class Holding(Base):
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='CASCADE'), nullable=False)
     quantity = Column(Numeric, nullable=False, default=0)
     cost_basis = Column(Numeric, nullable=False, default=0)
+    cost_basis_source = Column(String(length=32), default='INCOMPLETE')  # EXACT, ESTIMATED, INCOMPLETE
+    import_date = Column(Date)  # When this holding snapshot was imported
+    has_complete_history = Column(Boolean, default=False)  # True if from account inception
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -110,11 +113,16 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True)
     account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False)
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='SET NULL'))
-    type = Column(String(length=32), nullable=False)  # buy, sell, drip, split, div_payment
+    type = Column(String(length=32), nullable=False)  # BUY, SELL, DRIP, DIVIDEND_PAYMENT, SPLIT, TRANSFER
     quantity = Column(Numeric)
     price = Column(Numeric)
     total = Column(Numeric)
+    commission = Column(Numeric, default=0)
+    fees = Column(Numeric, default=0)
     date = Column(Date)
+    broker_transaction_id = Column(String(length=256))  # Unique ID from broker CSV (e.g., Schwab transaction ID)
+    is_estimated = Column(Boolean, default=False)  # True if reconstructed from holdings, not from broker CSV
+    source = Column(String(length=32), default='BROKER_CSV')  # BROKER_CSV, USER_INPUT, CALCULATED
 
     account = relationship('Account', back_populates='transactions')
     stock = relationship('Stock', back_populates='transactions')

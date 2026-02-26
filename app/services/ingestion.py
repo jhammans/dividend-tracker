@@ -11,10 +11,18 @@ from ._helpers import to_native
 logger = logging.getLogger(__name__)
 
 def ingest_stock_data(tickers: list[str], backfill: bool = True):
-    """Ingest stock data for multiple tickers, skipping invalid ones."""
+    """Ingest stock data for multiple tickers, skipping invalid ones.
+    
+    Returns:
+        dict with keys:
+            - 'successful': list of ingested tickers
+            - 'failed': list of (ticker, error_reason) tuples
+            - 'errors': list of error messages
+    """
     db = SessionLocal()
     successful = []
     failed = []
+    errors = []
     
     try:
         for ticker in tickers:
@@ -161,14 +169,23 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                 
             except Exception as e:
                 logger.error(f"Error processing {ticker}: {e}")
+                error_msg = f"{ticker}: {str(e)}"
                 failed.append((ticker, str(e)))
+                errors.append(error_msg)
                 db.rollback()
                 continue
         
     finally:
         db.close()
-        
-    # Summary report
+    
+    # Return results dict instead of just printing
+    result_dict = {
+        'successful': successful,
+        'failed': failed,
+        'errors': errors
+    }
+    
+    # Also print summary for console output
     if successful or failed:
         print(f"\n=== Ingestion Summary ===")
         if successful:
@@ -177,3 +194,5 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
             print(f"✗ Failed ({len(failed)}):")
             for ticker, reason in failed:
                 print(f"  - {ticker}: {reason}")
+    
+    return result_dict
