@@ -105,18 +105,17 @@ def cmd_holdings(args):
         
         logger.info("-" * 70)
         logger.info(f"✓ Holdings Import Complete")
-        logger.info(f"  Total holdings:        {results['total_processed']}")
-        logger.info(f"  Successfully imported: {results['imported_count']}")
-        logger.info(f"  Skipped/Invalid:       {results['skipped_count']}")
-        logger.info(f"  Failed:                {results['failed_count']}")
-        logger.info(f"  Total cost basis:      ${results.get('total_cost_basis', 0):,.2f}")
+        logger.info(f"  Total holdings:        {results['total_holdings']}")
+        logger.info(f"  Successfully created:  {results['imported']}")
+        logger.info(f"  Updated existing:      {results['updated']}")
+        logger.info(f"  Failed:                {results['failed']}")
         
         if results['errors']:
             logger.error("\nErrors:")
             for error in results['errors'][:5]:
                 logger.error(f"  - {error}")
         
-        return 0 if results['failed_count'] == 0 else 1
+        return 0 if results['failed'] == 0 else 1
         
     finally:
         db.close()
@@ -218,7 +217,7 @@ def cmd_full(args):
         
         holdings_importer = HoldingsImporter(db)
         holdings_results = holdings_importer.import_schwab_holdings(holdings_csv, account)
-        logger.info(f"✓ Imported {holdings_results['imported_count']} holdings")
+        logger.info(f"✓ Imported {holdings_results['imported']} holdings ({holdings_results['updated']} updated)")
         
         # Step 3: Import transactions
         logger.info("\n" + "="*70)
@@ -251,12 +250,12 @@ def cmd_full(args):
         logger.info("✓ FULL PIPELINE COMPLETE")
         logger.info("="*70)
         logger.info(f"\nAccount: {account.account_name} ({account.broker})")
-        logger.info(f"Holdings imported: {holdings_results['imported_count']}")
+        logger.info(f"Holdings imported: {holdings_results['imported']} created, {holdings_results['updated']} updated")
         logger.info(f"Transactions imported: {transactions_results['imported_count']}")
-        logger.info(f"  - Buys/Sells: {transactions_results['imported_count']}")
-        logger.info(f"  - Skipped: {transactions_results['skipped_count']} (dividends, interest, gains)")
+        logger.info(f"  - Buys/Sells/Dividends: {transactions_results['imported_count']}")
+        logger.info(f"  - Skipped (non-security): {transactions_results['skipped_count']}")
         
-        return 0 if (holdings_results['failed_count'] == 0 and 
+        return 0 if (holdings_results['failed'] == 0 and 
                      transactions_results['failed_count'] == 0) else 1
         
     finally:

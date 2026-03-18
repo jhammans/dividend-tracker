@@ -124,7 +124,9 @@ class SchwabTransactionParser:
         Schwab doesn't always provide transaction IDs in CSV, so we create one from:
         date + type + symbol + quantity + price
         """
-        return f"SCHWAB_{row['Date'].strftime('%Y%m%d')}_{row['Type']}_{row['Symbol']}_{row['Quantity']}_{row['Price']}"
+        qty = row['Quantity'] if pd.notna(row.get('Quantity')) else 0
+        price = row['Price'] if pd.notna(row.get('Price')) else 0
+        return f"SCHWAB_{row['Date'].strftime('%Y%m%d')}_{row['Type']}_{row['Symbol']}_{qty}_{price}"
 
 
 class JazzWealthTransactionParser:
@@ -410,10 +412,13 @@ class TransactionImporter:
     def __init__(self, db_session: Session):
         self.db = db_session
         self.import_results = {
-            'successful': 0,
-            'failed': 0,
+            'total_processed': 0,
+            'imported_count': 0,
+            'skipped_count': 0,
+            'failed_count': 0,
             'duplicates_skipped': 0,
-            'errors': []
+            'errors': [],
+            'imported_transactions': []
         }
     
     def import_schwab_transactions(self, filepath: str, account: Account, year: int = None) -> Dict:

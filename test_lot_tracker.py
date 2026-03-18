@@ -20,7 +20,7 @@ def test_lifo_basic():
 def test_split_2for1():
     t = LotTracker('TSLA')
     t.process('BUY',   date(2023, 1, 1), Decimal('100'), Decimal('200'))  # 100 @ 200, total=20000
-    t.process('SPLIT', date(2024, 1, 1), Decimal('100'), None)             # net_new=100 → ratio=2
+    t.process('SPLIT', date(2024, 1, 1), Decimal('2'),   None)             # ratio=2 (stock_splits table)
 
     assert t.total_quantity() == Decimal('200'), f'qty={t.total_quantity()}'
     # Total cost basis must be preserved after split
@@ -32,7 +32,7 @@ def test_split_2for1():
 def test_reverse_split():
     t = LotTracker('GME')
     t.process('BUY',   date(2023, 1, 1), Decimal('100'), Decimal('10'))   # 100 @ 10, total=1000
-    t.process('SPLIT', date(2024, 1, 1), Decimal('-50'), None)             # reverse 2:1: net_new=-50 → ratio=0.5
+    t.process('SPLIT', date(2024, 1, 1), Decimal('0.5'), None)             # ratio=0.5 (1:2 reverse)
 
     assert t.total_quantity() == Decimal('50.000000'), f'qty={t.total_quantity()}'
     assert abs(t.total_cost_basis() - Decimal('1000')) < Decimal('0.01'), f'cost={t.total_cost_basis()}'
@@ -63,7 +63,7 @@ def test_incomplete_history():
 def test_split_with_zero_holdings():
     t = LotTracker('NVDA')
     # No BUY before split — should warn and not crash
-    t.process('SPLIT', date(2024, 1, 1), Decimal('300'), None)
+    t.process('SPLIT', date(2024, 1, 1), Decimal('4'), None)  # ratio=4 with no holdings
 
     assert not t.has_complete_history
     assert len(t.warnings) == 1

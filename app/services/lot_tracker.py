@@ -61,7 +61,10 @@ class LotTracker:
         Args:
             tx_type:  internal transaction type (BUY, SELL, DRIP, SPLIT, …)
             tx_date:  transaction date
-            quantity: shares involved (always positive; for SPLIT this is net-new shares)
+            quantity: shares involved (always positive).
+                      For SPLIT this is the split *ratio* (e.g. Decimal('4') for
+                      a 4:1 forward split, Decimal('0.5') for a 1:2 reverse split).
+                      This matches the ratio column in the stock_splits table.
             price:    price per share (None for DRIP and SPLIT)
             source:   transaction source flag passed through to the lot
         """
@@ -80,7 +83,8 @@ class LotTracker:
             self._consume_lifo(qty, tx_date)
 
         elif tx_type == 'SPLIT':
-            self._apply_split(qty, tx_date)
+            # quantity is the ratio from stock_splits (e.g. 4.0 for a 4:1 split)
+            self._apply_split_ratio(qty, tx_date)
 
         # TRANSFER, DIVIDEND_PAYMENT, DEPOSIT, WITHDRAWAL etc. have no lot effect
 
@@ -136,39 +140,37 @@ class LotTracker:
             self.warnings.append(msg)
             logger.warning(msg)
 
-    def _apply_split(self, net_new_shares: Decimal, tx_date: date) -> None:
+    def _apply_split_ratio(self, ratio: Decimal, tx_date: date) -> None:
         """
-        Adjust all lots for a forward or reverse stock split.
+        Adjust all lots for a stock split using the split ratio.
 
-        Schwab records the *net change* in shares (positive = forward split,
-        negative = reverse split).  The split ratio is derived as:
+        The ratio comes directly from the stock_splits table:
+            4.0  → 4:1 forward split (each share becomes 4)
+            0.5  → 1:2 reverse split (every 2 shares become 1)
 
-            ratio = (current_qty + net_new_shares) / current_qty
-
-        Each lot's quantity is multiplied by ratio; cost_per_share is divided
+        Each lot’s quantity is multiplied by ratio; cost_per_share is divided
         by ratio so that total cost basis is preserved.
         """
-        current_qty = self.total_quantity()
+        if ratio <= Decimal('0'):
+            msg = (
+                f"{self.ticker}: SPLIT on {tx_date} has non-positive ratio {ratio} — skipping"
+            )
+            self.warnings.append(msg)
+            logger.warning(msg)
+            return
 
+        if ratio == Decimal('1'):
+            return  # No-op
+
+        current_qty = self.total_quantity()
         if current_qty == Decimal('0'):
             msg = (
                 f"{self.ticker}: SPLIT on {tx_date} encountered with 0 tracked shares — "
-                f"cannot apply ratio; history may be incomplete"
+                f"cannot apply ratio {ratio}; history may be incomplete"
             )
             self.warnings.append(msg)
             logger.warning(msg)
             self.has_complete_history = False
-            return
-
-        ratio = (current_qty + net_new_shares) / current_qty
-
-        if ratio <= Decimal('0'):
-            msg = (
-                f"{self.ticker}: SPLIT on {tx_date} produced non-positive ratio {ratio} "
-                f"(net_new={net_new_shares}, current={current_qty}) — skipping"
-            )
-            self.warnings.append(msg)
-            logger.warning(msg)
             return
 
         for lot in self._lots:
@@ -181,3 +183,15 @@ class LotTracker:
             f"{self.ticker}: Applied split ratio {ratio} on {tx_date} "
             f"({len(self._lots)} lots adjusted)"
         )
+
+    def _apply_split(self, net_new_shares: Decimal, tx_date: date) -> None:
+        """
+        Legacy helper — derives ratio from net-new shares and delegates.
+        Kept for backward compatibility with Schwab SPLIT transaction rows.
+        """
+        current_qty = self.total_quantity()
+        if current_qty == Decimal('0'):
+            self._apply_split_ratio(Decimal('0'), tx_date)  # triggers zero-qty warning
+            return
+        ratio = (current_qty + net_new_shares) / current_qty
+        self._apply_split_ratio(ratio, tx_date)
