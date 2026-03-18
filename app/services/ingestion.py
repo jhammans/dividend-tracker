@@ -40,10 +40,11 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                     continue
                 
                 # Fetch stock metadata from yfinance
+                # yf_stock is assigned before try so the splits block below can always reference it
+                yf_stock = yf.Ticker(ticker)
                 try:
-                    yf_stock = yf.Ticker(ticker)
                     yf_info = yf_stock.info
-                    asset_type = yf_info.get('quoteType', 'EQUITY')
+                    asset_type = yf_info.get('quoteType', 'EQUITY') or 'EQUITY'
                     name = yf_info.get('longName') or yf_info.get('shortName')
                     exchange = yf_info.get('exchange')
                     sector = yf_info.get('sector')
@@ -69,17 +70,19 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                     db.refresh(stock)
                     logger.info(f"  Created new stock: {ticker} ({asset_type})")
                 else:
-                    # Check for updates to existing stock
+                    # Check for updates to existing stock.
+                    # Only update if the new value is non-None/non-empty — a None from yfinance
+                    # (e.g. during rate limiting) must not overwrite a good existing value.
                     updates = {}
-                    if stock.name != name:
+                    if name and stock.name != name:
                         updates['name'] = (stock.name, name)
-                    if stock.exchange != exchange:
+                    if exchange and stock.exchange != exchange:
                         updates['exchange'] = (stock.exchange, exchange)
-                    if stock.sector != sector:
+                    if sector and stock.sector != sector:
                         updates['sector'] = (stock.sector, sector)
-                    if stock.industry != industry:
+                    if industry and stock.industry != industry:
                         updates['industry'] = (stock.industry, industry)
-                    if stock.asset_type != asset_type:
+                    if asset_type and stock.asset_type != asset_type:
                         updates['asset_type'] = (stock.asset_type, asset_type)
                     
                     if updates:
@@ -113,9 +116,10 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                 new_prices = prices_df[~prices_df['date'].isin(existing_dates)]
 
                 if backfill and existing_dates:
-                    # Find missing dates
+                    # Find missing dates — use .date() not .to_pydatetime() so the type matches
+                    # the datetime.date objects in existing_dates (datetime.datetime != datetime.date)
                     all_dates = pd.date_range(min(prices_df['date']), max(prices_df['date']))
-                    missing_dates = [d.to_pydatetime() for d in all_dates if d.to_pydatetime() not in existing_dates]
+                    missing_dates = [d.date() for d in all_dates if d.date() not in existing_dates]
                     if missing_dates:
                         missing_prices = prices_df[prices_df['date'].isin(missing_dates)]
                         new_prices = pd.concat([new_prices, missing_prices]).drop_duplicates(subset='date')
@@ -145,6 +149,8 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                     dividends_df = to_native(dividends_df)
                     # Ensure dates are Python date objects (not timestamps)
                     dividends_df['ex_date'] = pd.to_datetime(dividends_df['ex_date']).dt.date
+                    # Drop zero-amount rows (yfinance emits these as data corrections)
+                    dividends_df = dividends_df[dividends_df['amount'] > 0]
 
                     # Query existing ex_dates for this stock
                     existing_ex_dates = {row.ex_date for row in db.query(Dividend).filter(Dividend.stock_id == stock.id).all()}

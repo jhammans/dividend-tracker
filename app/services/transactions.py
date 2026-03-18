@@ -97,10 +97,11 @@ class SchwabTransactionParser:
                 df[col] = df[col].astype(str).str.replace('$', '').str.replace(',', '')
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             
-            # Drop rows with parsing errors
-            if df['Quantity'].isna().any() or df['Amount'].isna().any():
-                logger.warning("Dropped rows with invalid numeric values")
-                df = df.dropna(subset=['Quantity', 'Amount'])
+            # Drop rows missing Amount — do NOT drop on Quantity because dividend/income rows
+            # legitimately have no Quantity in Schwab exports
+            if df['Amount'].isna().any():
+                logger.warning("Dropped rows with invalid/missing Amount values")
+                df = df.dropna(subset=['Amount'])
             
             return df
             
@@ -485,7 +486,7 @@ class TransactionImporter:
                     # Check for duplicates (only if we have a stock)
                     existing = None
                     if stock:
-                        existing = self._check_duplicate_transaction(account, broker_txn_id, stock, row['Date'])
+                        existing = self._check_duplicate_transaction(account, broker_txn_id, stock, row['Date'], internal_type)
                     
                     if existing:
                         logger.info(f"Row {idx}: Duplicate transaction found (ID: {broker_txn_id}), skipping")
@@ -615,7 +616,7 @@ class TransactionImporter:
                     broker_txn_id = JazzWealthTransactionParser.create_broker_transaction_id(row)
                     
                     # Check for duplicates
-                    existing = self._check_duplicate_transaction(account, broker_txn_id, stock, row['Date'])
+                    existing = self._check_duplicate_transaction(account, broker_txn_id, stock, row['Date'], internal_type)
                     if existing:
                         logger.info(f"Row {idx}: Duplicate transaction (ID: {broker_txn_id}), skipping")
                         self.import_results['duplicates_skipped'] += 1
@@ -747,7 +748,7 @@ class TransactionImporter:
                     broker_txn_id = RobinhoodTransactionParser.create_broker_transaction_id(row)
                     
                     # Check for duplicates
-                    existing = self._check_duplicate_transaction(account, broker_txn_id, stock, row['Activity Date'])
+                    existing = self._check_duplicate_transaction(account, broker_txn_id, stock, row['Activity Date'], internal_type)
                     if existing:
                         logger.info(f"Row {idx}: Duplicate transaction (ID: {broker_txn_id}), skipping")
                         self.import_results['duplicates_skipped'] += 1
@@ -812,14 +813,16 @@ class TransactionImporter:
         
         return self.import_results
     
-    def _check_duplicate_transaction(self, account: Account, broker_txn_id: str, 
-                                     stock: Stock, txn_date: date) -> Optional[Transaction]:
+    def _check_duplicate_transaction(self, account: Account, broker_txn_id: str,
+                                     stock: Stock, txn_date: date,
+                                     tx_type: str = None) -> Optional[Transaction]:
         """
         Check if transaction already exists using multiple strategies.
         
         Priority:
         1. broker_transaction_id exact match (most reliable)
-        2. Date + Stock + Type + Amount composite (fallback)
+        2. Date + Stock + Type composite (fallback) — type is required to avoid
+           treating a same-day BUY and DIVIDEND_PAYMENT as duplicates of each other.
         """
         # Strategy 1: broker_transaction_id
         existing = self.db.query(Transaction).filter(
@@ -832,13 +835,15 @@ class TransactionImporter:
         if existing:
             return existing
         
-        # Strategy 2: Composite key (date + stock + amount) — catches manual import mismatches
-        # Only check within 24 hours to avoid false positives
+        # Strategy 2: Composite key (date + stock + type)
+        if tx_type is None:
+            return None
         existing = self.db.query(Transaction).filter(
             and_(
                 Transaction.account_id == account.id,
                 Transaction.stock_id == stock.id,
                 Transaction.date == txn_date,
+                Transaction.type == tx_type,
             )
         ).first()
         
@@ -910,9 +915,8 @@ def get_import_summary(results: Dict) -> str:
     """Format import results for display"""
     return f"""
 Transaction Import Summary:
-  ✓ Successful: {results['successful']}
-  ⊘ Duplicates Skipped: {results['duplicates_skipped']}
-  ✗ Failed: {results['failed']}
+  \u2713 Successful: {results['imported_count']}
+  \u2296 Duplicates Skipped: {results['duplicates_skipped']}
+  \u2717 Failed: {results['failed_count']}
   
-Imported Transactions:
 """
