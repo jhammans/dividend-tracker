@@ -33,6 +33,7 @@ class Stock(Base):
 
     prices = relationship('StockPrice', back_populates='stock', cascade='all, delete-orphan')
     dividends = relationship('Dividend', back_populates='stock', cascade='all, delete-orphan')
+    splits = relationship('StockSplit', back_populates='stock', cascade='all, delete-orphan')
     holdings = relationship('Holding', back_populates='stock', cascade='all, delete-orphan')
     transactions = relationship('Transaction', back_populates='stock', cascade='all, delete-orphan')
     alerts = relationship('Alert', back_populates='stock', cascade='all, delete-orphan')
@@ -88,6 +89,23 @@ class Dividend(Base):
     provider_date = Column(Date)  # Raw date as returned by the data provider (e.g. yfinance)
 
     stock = relationship('Stock', back_populates='dividends')
+
+
+class StockSplit(Base):
+    __tablename__ = 'stock_splits'
+    __table_args__ = (
+        UniqueConstraint('stock_id', 'date', name='uq_stock_split_stock_date'),
+        Index('ix_stock_splits_stock_id_date', 'stock_id', 'date'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='CASCADE'), nullable=False)
+    date = Column(Date, nullable=False)
+    ratio = Column(Numeric, nullable=False)  # e.g. 4.0 for a 4:1 forward split, 0.5 for a 1:2 reverse split
+    source = Column(String(length=32), default='YFINANCE')
+
+    stock = relationship('Stock', back_populates='splits')
+
 
 class Holding(Base):
     __tablename__ = 'holdings'
