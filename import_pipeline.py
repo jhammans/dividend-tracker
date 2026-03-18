@@ -7,8 +7,7 @@ Usage:
     python import_pipeline.py bootstrap <csv_path>
     python import_pipeline.py holdings <csv_path> <account_id>
     python import_pipeline.py transactions <csv_path> <account_id>
-    python import_pipeline.py full <holdings_csv> <transactions_csv> <account_id>
-"""
+    python import_pipeline.py full <holdings_csv> <transactions_csv> <account_id>    python import_pipeline.py refresh [--tickers AAPL MSFT ...]"""
 import sys
 import argparse
 import logging
@@ -18,6 +17,7 @@ from app.models import Account, Stock
 from app.services.bootstrap import bootstrap_csv
 from app.services.holdings import HoldingsImporter
 from app.services.transactions import TransactionImporter
+from app.services.ingestion import ingest_stock_data
 
 # Configure logging
 logging.basicConfig(
@@ -46,6 +46,39 @@ def validate_account(db, account_id):
     if not account:
         raise ValueError(f"Account ID {account_id} not found in database")
     return account
+
+
+def cmd_refresh(args):
+    """Refresh yfinance data (prices, dividends, splits, metadata) for all stocks."""
+    db = SessionLocal()
+    try:
+        if args.tickers:
+            tickers = [t.upper() for t in args.tickers]
+            logger.info(f"Refreshing {len(tickers)} specified ticker(s)...")
+        else:
+            tickers = [row.ticker for row in db.query(Stock.ticker).order_by(Stock.ticker).all()]
+            logger.info(f"Refreshing all {len(tickers)} stocks in database...")
+
+        logger.info("-" * 70)
+        results = ingest_stock_data(tickers, backfill=True)
+        logger.info("-" * 70)
+
+        successful = results['successful']
+        failed = results['failed']
+
+        logger.info(f"✓ Refresh Complete")
+        logger.info(f"  Refreshed:  {len(successful)} / {len(tickers)}")
+        logger.info(f"  Failed:     {len(failed)}")
+
+        if failed:
+            logger.warning("\nFailed tickers:")
+            for ticker, reason in failed:
+                logger.warning(f"  {ticker:10s}  {reason}")
+
+        return 0 if not failed else 1
+
+    finally:
+        db.close()
 
 
 def cmd_bootstrap(args):
@@ -286,6 +319,12 @@ Examples:
   
   # All at once
   python import_pipeline.py full ~/Downloads/holdings.csv ~/Downloads/transactions.csv 2
+
+  # Refresh all yfinance data (prices, dividends, splits)
+  python import_pipeline.py refresh
+
+  # Refresh specific tickers only
+  python import_pipeline.py refresh --tickers AAPL MSFT SCHD
         """
     )
     
@@ -327,6 +366,17 @@ Examples:
                              help='Broker/CSV format (default: SCHWAB)')
     full_parser.set_defaults(func=cmd_full)
     
+    # Refresh command
+    refresh_parser = subparsers.add_parser(
+        'refresh',
+        help='Re-fetch yfinance data (prices, dividends, splits) for all stocks'
+    )
+    refresh_parser.add_argument(
+        '--tickers', nargs='+', metavar='TICKER',
+        help='Refresh only these tickers (default: all stocks in DB)'
+    )
+    refresh_parser.set_defaults(func=cmd_refresh)
+
     # Show database accounts
     accounts_parser = subparsers.add_parser('accounts', help='List available accounts')
     accounts_parser.set_defaults(func=cmd_accounts)
