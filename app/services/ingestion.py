@@ -3,8 +3,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 import logging
 import yfinance as yf
+from sqlalchemy import text
+from decimal import Decimal
 from app.db.session import SessionLocal
-from app.models import Stock, StockPrice, Dividend
+from app.models import Stock, StockPrice, Dividend, StockSplit
 from .fetch import fetch_stock_data, InvalidTickerError
 from ._helpers import to_native
 
@@ -157,7 +159,66 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                             ]
                         )
                         logger.info(f"  Inserted {len(new_dividends)} dividend records for {ticker}")
+
+                    # Recompute frequency for all this stock's dividends from ex_date spacing
+                    db.execute(
+                        text("""
+                            UPDATE dividends d
+                            SET frequency = classified.freq
+                            FROM (
+                                WITH gaps AS (
+                                    SELECT ex_date,
+                                           ex_date - LAG(ex_date) OVER (ORDER BY ex_date) AS gap_days
+                                    FROM dividends
+                                    WHERE stock_id = :sid AND ex_date IS NOT NULL
+                                ),
+                                avg_gap AS (
+                                    SELECT ROUND(AVG(gap_days)) AS avg_gap
+                                    FROM gaps
+                                    WHERE gap_days IS NOT NULL AND gap_days BETWEEN 1 AND 400
+                                )
+                                SELECT
+                                    CASE
+                                        WHEN avg_gap <= 35  THEN 'Monthly'
+                                        WHEN avg_gap <= 100 THEN 'Quarterly'
+                                        WHEN avg_gap <= 200 THEN 'SemiAnnual'
+                                        ELSE                     'Annual'
+                                    END AS freq
+                                FROM avg_gap
+                                WHERE avg_gap IS NOT NULL
+                            ) classified
+                            WHERE d.stock_id = :sid
+                        """),
+                        {'sid': stock.id}
+                    )
                     db.commit()
+
+                # --- Splits ---
+                try:
+                    splits_series = yf_stock.splits
+                    if splits_series is not None and not splits_series.empty:
+                        splits_series.index = pd.to_datetime(splits_series.index).date
+                        existing_split_dates = {
+                            row.date for row in
+                            db.query(StockSplit.date).filter(StockSplit.stock_id == stock.id).all()
+                        }
+                        new_splits = [
+                            StockSplit(
+                                stock_id=stock.id,
+                                date=split_date,
+                                ratio=Decimal(str(ratio)),
+                                source='YFINANCE',
+                            )
+                            for split_date, ratio in splits_series.items()
+                            if split_date not in existing_split_dates and ratio > 0
+                        ]
+                        if new_splits:
+                            db.bulk_save_objects(new_splits)
+                            db.commit()
+                            logger.info(f"  Inserted {len(new_splits)} split record(s) for {ticker}")
+                except Exception as e:
+                    logger.warning(f"  Could not fetch splits for {ticker}: {e}")
+                    db.rollback()
 
                 # Update last_updated timestamp
                 stock.last_updated = datetime.utcnow()
