@@ -14,9 +14,9 @@ Quick start (assumes Python 3.10+ and PostgreSQL available):
 1. Create and activate a virtual environment
 
 
-python -m venv .venv
-source .venv/bin/activate # macOS/Linux
-.venv\Scripts\activate # Windows
+python -m venv .dividend_track_venv
+source .dividend_track_venv/bin/activate # macOS/Linux
+.dividend_track_venv\Scripts\activate # Windows
 
 
 2. Install dependencies
@@ -54,6 +54,7 @@ Quick command:
 ```bash
 python import_pipeline.py accounts  # List your accounts
 python import_pipeline.py full /path/to/holdings.csv /path/to/transactions.csv 2
+python import_pipeline.py refresh   # Re-fetch all yfinance data (prices, dividends, splits)
 ```
 
 ---

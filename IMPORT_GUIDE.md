@@ -4,7 +4,7 @@
 
 Use the `import_pipeline.py` CLI tool to import your broker data:
 
-> **Currently supported**: Schwab. Fidelity and other brokers can be added by extending the parsers.
+> **Currently supported**: Schwab, JazzWealth/Goldman Sachs, Robinhood. Use `--broker` to select the parser.
 
 ```bash
 # First, list available accounts
@@ -56,7 +56,14 @@ python import_pipeline.py holdings ~/Downloads/Schwab_Positions.csv 2
 Load transaction history (buys, sells, dividends):
 
 ```bash
+# Schwab (default)
 python import_pipeline.py transactions ~/Downloads/Schwab_Transactions.csv 2
+
+# JazzWealth / Goldman Sachs
+python import_pipeline.py transactions ~/Downloads/GS_Transactions.csv 3 --broker GOLDMAN_SACHS
+
+# Robinhood
+python import_pipeline.py transactions ~/Downloads/Robinhood_Transactions.csv 4 --broker ROBINHOOD
 ```
 
 **CSV Format**: Requires `Date`, `Type`, `Symbol`, `Quantity`, `Price`, `Amount` columns
@@ -71,6 +78,20 @@ python import_pipeline.py full \
   ~/Downloads/Schwab_Transactions.csv \
   2
 ```
+
+### 6. Refresh yfinance Data
+
+Re-fetch prices, dividends, splits, and metadata from yfinance for every stock in the database. Run this periodically to keep data current.
+
+```bash
+# Refresh all stocks
+python import_pipeline.py refresh
+
+# Refresh specific tickers only
+python import_pipeline.py refresh --tickers AAPL SCHD VTI
+```
+
+Any stocks added via future `bootstrap`/`holdings`/`full` runs are automatically included in the next `refresh`.
 
 ---
 
@@ -146,14 +167,12 @@ For each buy/sell transaction:
 
 ### Skipped Records
 
-The importer **skips non-trading events** (correctly filtered):
-- Dividends (Cash Dividend, Pr Yr Cash Div, etc.)
-- Interest payments
-- Capital gains (long/short term)
-- Reinvested dividends (DRIP)
-- Bank interest
+The importer skips rows that don't map to a security:
+- Bank interest, wire transfers, ACH deposits
+- Capital gains distributions (non-security entries)
+- Advisory fees
 
-These are non-security transactions and don't affect your holdings.
+Dividend payments (`DIVIDEND_PAYMENT`), DRIP reinvestments, and buy/sell trades are all imported as transactions.
 
 ---
 
@@ -249,6 +268,8 @@ This is expected behavior. The importer uses the `broker_transaction_id` to prev
 ## Related Files
 
 - **app/services/bootstrap.py** - Ticker bootstrap service
-- **app/services/holdings.py** - Holdings import service  
-- **app/services/transactions.py** - Transaction import service
-- **app/models.py** - Database models (Stock, Holding, Transaction, Account)
+- **app/services/holdings.py** - Holdings import service
+- **app/services/transactions.py** - Transaction import service (Schwab, JazzWealth, Robinhood)
+- **app/services/ingestion.py** - yfinance data ingestion (prices, dividends, splits, metadata)
+- **app/services/splits.py** - Stock split backfill utility
+- **app/models.py** - Database models (Stock, Holding, Transaction, Account, StockSplit)
