@@ -350,8 +350,8 @@ class RobinhoodTransactionParser:
             # Convert to DataFrame for easier processing
             df = pd.DataFrame(rows)
             
-            # Parse Activity Date - Robinhood uses M/D/YYYY format
-            df['Activity Date'] = pd.to_datetime(df['Activity Date'], format='%m/%d/%Y', errors='coerce').dt.date
+            # Parse Activity Date - Robinhood uses M/D/YY or M/D/YYYY format
+            df['Activity Date'] = pd.to_datetime(df['Activity Date'], format='mixed', dayfirst=False, errors='coerce').dt.date
             
             # Strip whitespace from key columns
             df['Instrument'] = df['Instrument'].astype(str).str.strip().str.upper()
@@ -394,11 +394,11 @@ class RobinhoodTransactionParser:
     @staticmethod
     def create_broker_transaction_id(row: pd.Series) -> str:
         """Create deterministic broker_transaction_id from row data"""
-        qty = int(row['Quantity']) if pd.notna(row['Quantity']) else 0
+        qty = f"{abs(float(row['Quantity'])):.4f}" if pd.notna(row['Quantity']) else "0"
         price = f"{row['Price']:.2f}" if pd.notna(row['Price']) else "0.00"
         code = 'BUY' if row['Trans Code'] in ['BUY'] else 'SELL' if row['Trans Code'] == 'SELL' else row['Trans Code']
         
-        return f"ROBINHOOD_{row['Activity Date'].strftime('%Y%m%d')}_{code}_{row['Instrument']}_{abs(qty)}_{price}"
+        return f"ROBINHOOD_{row['Activity Date'].strftime('%Y%m%d')}_{code}_{row['Instrument']}_{qty}_{price}"
 
 
 class FidelityTransactionParser:
