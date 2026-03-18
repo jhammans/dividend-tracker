@@ -492,9 +492,9 @@ class TransactionImporter:
                         self.import_results['duplicates_skipped'] += 1
                         continue
                     
-                    # Parse Amount - may include $ signs and +/- signs
+                    # Parse Amount - may include $ signs and +/- signs; always store absolute value
                     amount_str = str(row['Amount']).replace('$', '').replace(',', '').strip()
-                    amount_value = Decimal(amount_str) if amount_str else Decimal('0')
+                    amount_value = abs(Decimal(amount_str)) if amount_str else Decimal('0')
                     
                     # Create transaction record
                     transaction = Transaction(
@@ -670,7 +670,7 @@ class TransactionImporter:
                        f"{self.import_results['skipped_count']} skipped, "
                        f"{self.import_results['failed_count']} failed")
             
-        except JazzWealthTransactionError as e:
+        except TransactionImportError as e:
             self.import_results['errors'].append(str(e))
             logger.error(f"Import failed: {e}")
             self.db.rollback()
@@ -718,17 +718,22 @@ class TransactionImporter:
                         self.import_results['skipped_count'] += 1
                         continue
                     
-                    # Skip non-trading transactions (deposits, dividends, interest)
-                    if internal_type in ['DEPOSIT', 'WITHDRAWAL', 'DIVIDEND_PAYMENT', 'DRIP', 'INTEREST']:
-                        logger.debug(f"Row {idx}: Skipping {internal_type} (non-trading)")
+                    # Skip non-security cash movements only; keep DIVIDEND_PAYMENT and DRIP
+                    if internal_type in ['DEPOSIT', 'WITHDRAWAL', 'INTEREST']:
+                        logger.debug(f"Row {idx}: Skipping {internal_type} (non-security)")
                         self.import_results['skipped_count'] += 1
                         continue
                     
                     # Get symbol
                     symbol = row['Instrument'].strip().upper() if pd.notna(row['Instrument']) else None
                     if not symbol:
-                        logger.warning(f"Row {idx}: Missing symbol, skipping")
-                        self.import_results['skipped_count'] += 1
+                        if internal_type == 'DIVIDEND_PAYMENT':
+                            # Robinhood occasionally omits the instrument on dividend rows
+                            logger.warning(f"Row {idx}: DIVIDEND_PAYMENT missing symbol (data unavailable from Robinhood), skipping")
+                            self.import_results['skipped_count'] += 1
+                        else:
+                            logger.warning(f"Row {idx}: Missing symbol, skipping")
+                            self.import_results['skipped_count'] += 1
                         continue
                     
                     # Find stock
@@ -753,8 +758,11 @@ class TransactionImporter:
                     price = Decimal(str(row['Price'])) if pd.notna(row['Price']) else None
                     amount = Decimal(str(abs(row['Amount']))) if pd.notna(row['Amount']) else Decimal('0')
                     
-                    # Determine BUY vs SELL based on quantity sign (negative = sell)
-                    tx_type = 'SELL' if row['Quantity'] < 0 else 'BUY'
+                    # Preserve internal type for income transactions; derive BUY/SELL from quantity sign for trades
+                    if internal_type in ['DIVIDEND_PAYMENT', 'DRIP']:
+                        tx_type = internal_type
+                    else:
+                        tx_type = 'SELL' if row['Quantity'] < 0 else 'BUY'
                     
                     # Create transaction record
                     transaction = Transaction(
@@ -856,12 +864,20 @@ class TransactionImporter:
         for holding in holdings:
             ticker = holding.stock.ticker
             
-            # Sum all quantity activity from transactions
+            # Sum all quantity activity from transactions (BUY + DRIP - SELL)
             buy_qty = self.db.query(Transaction).filter(
                 and_(
                     Transaction.account_id == account.id,
                     Transaction.stock_id == holding.stock_id,
                     Transaction.type == 'BUY'
+                )
+            ).with_entities(func.sum(Transaction.quantity)).scalar() or Decimal('0')
+
+            drip_qty = self.db.query(Transaction).filter(
+                and_(
+                    Transaction.account_id == account.id,
+                    Transaction.stock_id == holding.stock_id,
+                    Transaction.type == 'DRIP'
                 )
             ).with_entities(func.sum(Transaction.quantity)).scalar() or Decimal('0')
             
@@ -873,7 +889,7 @@ class TransactionImporter:
                 )
             ).with_entities(func.sum(Transaction.quantity)).scalar() or Decimal('0')
             
-            calculated_qty = buy_qty - sell_qty
+            calculated_qty = buy_qty + drip_qty - sell_qty
             
             # Compare with holding
             if calculated_qty == holding.quantity:

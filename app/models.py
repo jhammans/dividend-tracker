@@ -11,6 +11,7 @@ Boolean,
 ForeignKey,
 UniqueConstraint,
 Index,
+text,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -49,6 +50,7 @@ class Account(Base):
     
     holdings = relationship('Holding', back_populates='account', cascade='all, delete-orphan')
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
+    portfolio_metrics = relationship('PortfolioMetric', back_populates='account', cascade='all, delete-orphan')
 
 class StockPrice(Base):
     __tablename__ = 'stock_prices'
@@ -83,7 +85,7 @@ class Dividend(Base):
     declared_date = Column(Date)
     amount = Column(Numeric)
     frequency = Column(String(length=32))
-    date = Column(Date)
+    provider_date = Column(Date)  # Raw date as returned by the data provider (e.g. yfinance)
 
     stock = relationship('Stock', back_populates='dividends')
 
@@ -131,16 +133,26 @@ class Transaction(Base):
 class PortfolioMetric(Base):
     __tablename__ = 'portfolio_metrics'
     __table_args__ = (
-    UniqueConstraint('date', name='uq_portfolio_metrics_date'),
+        # Unique per account+date for per-account rows
+        Index('uq_portfolio_metrics_account_date', 'account_id', 'date', unique=True,
+              postgresql_where=text('account_id IS NOT NULL')),
+        # Unique per date for aggregate rows (account_id IS NULL = all-accounts total)
+        Index('uq_portfolio_metrics_agg_date', 'date', unique=True,
+              postgresql_where=text('account_id IS NULL')),
     )
 
-
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=True)  # NULL = all-accounts aggregate
     date = Column(Date, nullable=False)
     total_value = Column(Numeric)
-    total_dividends = Column(Numeric)
-    forward_dividend_income = Column(Numeric)
-    yield_on_cost = Column(Numeric)
+    total_cost_basis = Column(Numeric)
+    total_unrealized_gain_loss = Column(Numeric)
+    total_dividends = Column(Numeric)          # YTD realized dividend income (from transactions)
+    forward_dividend_income = Column(Numeric)  # Projected annual income (from dividends table)
+    yield_on_cost = Column(Numeric)            # forward_dividend_income / total_cost_basis
+    dividend_yield = Column(Numeric)           # forward_dividend_income / total_value
+
+    account = relationship('Account', back_populates='portfolio_metrics')
 
 class Alert(Base):
     __tablename__ = 'alerts'
