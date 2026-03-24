@@ -1,6 +1,6 @@
 # app/services/ingestion.py
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import yfinance as yf
 from sqlalchemy import text
@@ -227,7 +227,7 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                     db.rollback()
 
                 # Update last_updated timestamp
-                stock.last_updated = datetime.utcnow()
+                stock.last_updated = datetime.now(timezone.utc)
                 db.add(stock)
                 db.commit()
                 

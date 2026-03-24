@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
 Column,
 Integer,
@@ -29,7 +29,7 @@ class Stock(Base):
     industry = Column(String(length=128))
     currency = Column(String(length=8), default='USD')
     asset_type = Column(String(length=32), default='EQUITY')  # EQUITY, ETF, MUTUALFUND
-    last_updated = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     prices = relationship('StockPrice', back_populates='stock', cascade='all, delete-orphan')
     dividends = relationship('Dividend', back_populates='stock', cascade='all, delete-orphan')
@@ -47,7 +47,7 @@ class Account(Base):
     broker = Column(String(length=32), nullable=False)  # SCHWAB, FIDELITY, ROBINHOOD
     account_type = Column(String(length=32), nullable=False)  # IRA, ROTH_IRA, TAXABLE, 401K, etc.
     account_number = Column(String(length=64))  # Last 4 digits or full account number
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     holdings = relationship('Holding', back_populates='account', cascade='all, delete-orphan')
     transactions = relationship('Transaction', back_populates='account', cascade='all, delete-orphan')
@@ -121,8 +121,8 @@ class Holding(Base):
     cost_basis_source = Column(String(length=32), default='INCOMPLETE')  # EXACT, ESTIMATED, INCOMPLETE
     import_date = Column(Date)  # When this holding snapshot was imported
     has_complete_history = Column(Boolean, default=False)  # True if from account inception
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     account = relationship('Account', back_populates='holdings')
     stock = relationship('Stock', back_populates='holdings')
@@ -179,7 +179,7 @@ class Alert(Base):
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='CASCADE'))
     type = Column(String(length=64))
     message = Column(String(length=1024))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     resolved = Column(Boolean, default=False)
 
     stock = relationship('Stock', back_populates='alerts')
@@ -192,6 +192,6 @@ class AIAnalysis(Base):
     stock_id = Column(Integer, ForeignKey('stocks.id', ondelete='CASCADE'))
     analysis_type = Column(String(length=128))
     content = Column(String) # JSON stored as text; migration later can convert to JSONB if desired
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     stock = relationship('Stock', back_populates='ai_analyses')
