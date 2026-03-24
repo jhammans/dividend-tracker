@@ -305,7 +305,7 @@ def cmd_full(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Dividend Tracker: Import pipeline for Schwab broker data',
+        description='Dividend Tracker: Import pipeline for broker data',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
