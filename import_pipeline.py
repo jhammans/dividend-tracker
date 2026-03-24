@@ -9,6 +9,7 @@ Usage:
     python import_pipeline.py transactions <csv_path> <account_id>
     python import_pipeline.py full <holdings_csv> <transactions_csv> <account_id>    python import_pipeline.py refresh [--tickers AAPL MSFT ...]"""
 import sys
+import os
 import argparse
 import logging
 from pathlib import Path
@@ -29,14 +30,21 @@ logger = logging.getLogger(__name__)
 
 
 def validate_file(filepath):
-    """Ensure file exists and is readable"""
-    path = Path(filepath)
+    """Ensure file exists, is a regular file, and is readable.
+
+    Resolves symlinks and normalises the path to prevent directory traversal
+    tricks such as `../../etc/passwd`.  The resolved path is returned so
+    callers always work with an absolute, canonical path.
+    """
+    path = Path(filepath).resolve()
     if not path.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
     if not path.is_file():
-        raise ValueError(f"Not a file: {filepath}")
-    if not path.suffix.lower() == '.csv':
-        raise ValueError(f"Not a CSV file: {filepath}")
+        raise ValueError(f"Not a regular file: {filepath}")
+    if path.suffix.lower() != ".csv":
+        raise ValueError(f"Expected a .csv file, got: {filepath}")
+    if not os.access(path, os.R_OK):
+        raise PermissionError(f"File is not readable: {filepath}")
     return str(path)
 
 

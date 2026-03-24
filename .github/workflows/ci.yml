@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: ["main", "develop"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run unit tests with coverage
+        # Integration tests are excluded via pytest.ini (requires live PostgreSQL)
+        run: pytest
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage

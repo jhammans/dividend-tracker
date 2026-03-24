@@ -1,7 +1,8 @@
-SQLAlchemy>=1.4
-alembic>=1.11
-psycopg2-binary
-python-dotenv
-yfinance>=0.2.18
-pandas>=2.0.0
-requests>=2.0.0
+SQLAlchemy==2.0.48
+alembic==1.18.4
+psycopg2-binary==2.9.11
+python-dotenv==1.2.2
+yfinance==0.2.66
+pandas==2.3.3
+numpy==2.4.3
+requests==2.32.5

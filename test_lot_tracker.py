@@ -1,4 +1,4 @@
-"""Smoke tests for LotTracker — run with: python test_lot_tracker.py"""
+"""Unit tests for LotTracker — run with: pytest test_lot_tracker.py"""
 from decimal import Decimal
 from datetime import date
 from app.services.lot_tracker import LotTracker
@@ -14,7 +14,6 @@ def test_lifo_basic():
     # Remaining: 100 shares @ 10 + 20 shares @ 20 = 1400
     assert t.total_cost_basis() == Decimal('1400'), f'cost={t.total_cost_basis()}'
     assert t.has_complete_history
-    print('LIFO basic: PASSED')
 
 
 def test_split_2for1():
@@ -26,7 +25,6 @@ def test_split_2for1():
     # Total cost basis must be preserved after split
     assert abs(t.total_cost_basis() - Decimal('20000')) < Decimal('0.01'), f'cost={t.total_cost_basis()}'
     assert t.lots()[0].cost_per_share == Decimal('100.000000'), f'cps={t.lots()[0].cost_per_share}'
-    print('2:1 split: PASSED')
 
 
 def test_reverse_split():
@@ -37,7 +35,6 @@ def test_reverse_split():
     assert t.total_quantity() == Decimal('50.000000'), f'qty={t.total_quantity()}'
     assert abs(t.total_cost_basis() - Decimal('1000')) < Decimal('0.01'), f'cost={t.total_cost_basis()}'
     assert t.lots()[0].cost_per_share == Decimal('20.000000'), f'cps={t.lots()[0].cost_per_share}'
-    print('Reverse 2:1 split: PASSED')
 
 
 def test_drip_included_in_quantity():
@@ -46,7 +43,6 @@ def test_drip_included_in_quantity():
     t.process('DRIP', date(2023, 4, 1), Decimal('2'),   Decimal('51'))   # DRIP: 2 shares @ 51
 
     assert t.total_quantity() == Decimal('102')
-    print('DRIP quantity: PASSED')
 
 
 def test_incomplete_history():
@@ -57,7 +53,6 @@ def test_incomplete_history():
     assert not t.has_complete_history
     assert len(t.warnings) == 1
     assert t.total_quantity() == Decimal('0')
-    print('Incomplete history: PASSED')
 
 
 def test_split_with_zero_holdings():
@@ -67,14 +62,3 @@ def test_split_with_zero_holdings():
 
     assert not t.has_complete_history
     assert len(t.warnings) == 1
-    print('Split with zero holdings: PASSED')
-
-
-if __name__ == '__main__':
-    test_lifo_basic()
-    test_split_2for1()
-    test_reverse_split()
-    test_drip_included_in_quantity()
-    test_incomplete_history()
-    test_split_with_zero_holdings()
-    print('\nAll tests passed.')

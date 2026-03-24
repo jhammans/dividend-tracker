@@ -1,10 +1,12 @@
 """
-Test ticker bootstrap functionality.
-This script shows how to use the bootstrap service to ensure all tickers
-from a broker CSV are in the database before importing transactions/holdings.
+Integration tests for the bootstrap service.
+
+Requires a live PostgreSQL connection (DATABASE_URL in .env).
+Excluded from CI — run manually: pytest test_bootstrap.py -m integration
 """
-import logging
 import csv
+import logging
+import pytest
 from tempfile import NamedTemporaryFile
 from app.db.session import SessionLocal
 from app.services.bootstrap import bootstrap_csv
@@ -40,6 +42,7 @@ def create_sample_schwab_csv():
         return f.name
 
 
+@pytest.mark.integration
 def test_bootstrap():
     """Test the bootstrap service"""
     
