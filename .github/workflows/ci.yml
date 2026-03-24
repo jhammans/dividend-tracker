@@ -23,6 +23,10 @@ jobs:
 
       - name: Run unit tests with coverage
         # Integration tests are excluded via pytest.ini (requires live PostgreSQL)
+        # DATABASE_URL is set to a dummy value so session.py imports without error;
+        # unit tests use the SQLite in-memory fixture from conftest.py instead.
+        env:
+          DATABASE_URL: sqlite:///./test.db
         run: pytest
 
       - name: Upload coverage report
