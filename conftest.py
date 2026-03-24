@@ -17,7 +17,7 @@ from tempfile import NamedTemporaryFile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
+from app.models import Base
 
 
 @pytest.fixture
