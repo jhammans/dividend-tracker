@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 import yfinance as yf
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 from decimal import Decimal
 from app.db.session import SessionLocal
 from app.models import Stock, StockPrice, Dividend, StockSplit
@@ -21,7 +22,7 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
             - 'failed': list of (ticker, error_reason) tuples
             - 'errors': list of error messages
     """
-    db = SessionLocal()
+    db = SessionLocal()  # pyright: ignore[reportOptionalCall]
     successful = []
     failed = []
     errors = []
@@ -105,7 +106,7 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
 
                 # --- Prices ---
                 # Handle timezone conversion safely (yfinance may return naive or tz-aware)
-                if prices_df.index.tz is not None:
+                if isinstance(prices_df.index, pd.DatetimeIndex) and prices_df.index.tz is not None:
                     prices_df.index = prices_df.index.tz_convert("UTC").tz_localize(None)
                 prices_df = prices_df.reset_index().rename(columns={'Date': 'date'})
                 prices_df = to_native(prices_df)
@@ -227,7 +228,7 @@ def ingest_stock_data(tickers: list[str], backfill: bool = True):
                     db.rollback()
 
                 # Update last_updated timestamp
-                stock.last_updated = datetime.now(timezone.utc)
+                stock.last_updated = datetime.now(timezone.utc)  # type: ignore[assignment]
                 db.add(stock)
                 db.commit()
                 
