@@ -58,7 +58,7 @@ def validate_account(db, account_id):
 
 def cmd_refresh(args):
     """Refresh yfinance data (prices, dividends, splits, metadata) for all stocks."""
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         if args.tickers:
             tickers = [t.upper() for t in args.tickers]
@@ -93,7 +93,7 @@ def cmd_bootstrap(args):
     """Bootstrap: Scan CSV and ensure all tickers exist in database"""
     csv_path = validate_file(args.csv)
     
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         logger.info(f"Starting bootstrap for: {args.csv}")
         logger.info("-" * 70)
@@ -128,7 +128,7 @@ def cmd_holdings(args):
     """Holdings: Import current positions with cost basis"""
     csv_path = validate_file(args.csv)
     
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         # Bootstrap first
         logger.info(f"[Step 1/2] Bootstrap tickers from holdings CSV...")
@@ -166,7 +166,7 @@ def cmd_transactions(args):
     """Transactions: Import buy/sell activity with duplicate detection"""
     csv_path = validate_file(args.csv)
     
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         # Bootstrap first
         logger.info(f"[Step 1/2] Bootstrap tickers from transactions CSV...")
@@ -236,7 +236,7 @@ def cmd_full(args):
     holdings_csv = validate_file(args.holdings_csv)
     transactions_csv = validate_file(args.transactions_csv)
     
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         account = validate_account(db, args.account)
         
@@ -419,7 +419,7 @@ Examples:
 
 def cmd_create_account(args):
     """Create a new account in the database"""
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         # Check if account already exists
         existing = db.query(Account).filter_by(
@@ -446,7 +446,7 @@ def cmd_create_account(args):
         logger.info(f"  Name:    {account.account_name}")
         logger.info(f"  Broker:  {account.broker}")
         logger.info(f"  Type:    {account.account_type}")
-        if account.account_number:
+        if account.account_number is not None:  # type: ignore[misc]
             logger.info(f"  Number:  {account.account_number}")
         
         return 0
@@ -460,7 +460,7 @@ def cmd_create_account(args):
 
 def cmd_accounts(args):
     """List available accounts in database"""
-    db = SessionLocal()
+    db = SessionLocal()  # type: ignore[misc]
     try:
         accounts = db.query(Account).all()
         if not accounts:
